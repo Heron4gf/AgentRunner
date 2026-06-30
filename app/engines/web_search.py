@@ -1,23 +1,23 @@
 from __future__ import annotations
 
+from tavily import AsyncTavilyClient
+
 from app.models.execution import SearchWebResult, WebSearchResultItem
 
 
 class WebSearchClient:
     def __init__(self, api_key: str = "") -> None:
         self.api_key = api_key
-        self._client = None
+        self._client: AsyncTavilyClient | None = None
 
-    def _get_client(self):
+    def _get_client(self) -> AsyncTavilyClient:
         if self._client is None:
-            from tavily import TavilyClient
-
-            self._client = TavilyClient(api_key=self.api_key)
+            self._client = AsyncTavilyClient(api_key=self.api_key)
         return self._client
 
     async def search(self, query: str, max_results: int = 5) -> SearchWebResult:
         client = self._get_client()
-        response = client.search(query=query, max_results=max_results)
+        response = await client.search(query=query, max_results=max_results)
 
         results: list[WebSearchResultItem] = []
         for item in response.get("results", []):

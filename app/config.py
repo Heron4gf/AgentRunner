@@ -8,7 +8,8 @@ class Settings(BaseSettings):
     contexter_url: str = "http://localhost:8001"
     workspace_root: str = "/workspace"
     llm_model: str = "anthropic/claude-sonnet-4.6"
-    applier_model: str = "morph-v3-fast"
+    applier_model: str = "morph/morph-v3-fast"
+    extractor_model: str = "qwen/Qwen-3.6-flash"
     llm_temperature: float = 0.0
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 

@@ -31,6 +31,7 @@ class CreateJobRequest(BaseModel):
     query: str
     project_id: str | None = None
     workspace_id: str | None = None
+    files: dict[str, str] = Field(default_factory=dict)
 
 
 class JobResponse(BaseModel):
@@ -63,6 +64,7 @@ class JobRecord(BaseModel):
     query: str
     preferences: dict[str, Any] = Field(default_factory=dict)
     project_id: str | None = None
+    files: dict[str, str] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     error: str | None = None

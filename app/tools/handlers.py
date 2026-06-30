@@ -120,10 +120,20 @@ class ToolHandlers:
         self, args: dict[str, Any], job_id: str
     ) -> dict[str, Any]:
         parsed = EditFileArgs(**args)
+
+        job = self.job_store.get_job(job_id)
+        file_content = job.files.get(parsed.path) if job else None
+        if file_content is None:
+            raise ValueError(
+                f"File content for '{parsed.path}' was not provided at job creation. "
+                f"The client must include it in the 'files' map of the job request."
+            )
+
         result = await self.file_applier.edit(
             path=parsed.path,
             instruction=parsed.instruction,
             update=parsed.update,
+            file_content=file_content,
         )
         await self.job_store.emit_event(
             job_id,

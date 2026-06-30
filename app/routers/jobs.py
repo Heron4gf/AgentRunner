@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
-from app.api.deps import get_job_store, get_tool_handlers
+from app.api.deps import get_job_store, get_llm_client, get_tool_handlers
 from app.config import get_settings
 from app.core.agent import AgentLoop
 from app.core.job_store import JobStore
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 @router.post("", response_model=JobResponse, status_code=201)
 async def create_job(
+    request: Request,
     body: CreateJobRequest,
     job_store: JobStore = Depends(get_job_store),
     tool_handlers: ToolHandlers = Depends(get_tool_handlers),
@@ -43,16 +45,15 @@ async def create_job(
         )
         task_id = contexter_task.id
         preferences = contexter_task.preferences
-    except Exception:
-        # Contexter unavailable: proceed without preferences
-        task_id = None
-        preferences = {}
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=502, detail=f"Contexter unavailable: {e}")
 
     record = JobRecord(
         query=body.query,
         task_id=task_id,
         project_id=body.project_id,
         preferences=preferences,
+        files=body.files,
         status=JobStatus.QUEUED,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
@@ -60,13 +61,8 @@ async def create_job(
 
     job_record, event_queue = job_store.create_job(record)
 
-    # Launch agent loop as background task
-    llm_client = LLMClient(
-        api_key=settings.openrouter_api_key,
-        base_url=settings.openrouter_base_url,
-        model=settings.llm_model,
-        temperature=settings.llm_temperature,
-    )
+    # Use singleton LLMClient from app state
+    llm_client = get_llm_client(request)
     agent = AgentLoop(
         job_id=job_record.job_id,
         query=body.query,
