@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -18,6 +19,8 @@ from app.models.tools import (
     SearchFilesArgs,
     SearchWebArgs,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ToolHandlers:
@@ -40,7 +43,6 @@ class ToolHandlers:
     ) -> dict[str, Any]:
         call_id = str(uuid.uuid4())
 
-        # Emit tool_call event
         await self.job_store.emit_event(
             job_id,
             JobEvent(
@@ -53,9 +55,9 @@ class ToolHandlers:
         try:
             result = await self._execute(tool_name, args, job_id, call_id)
         except Exception as e:
+            logger.exception("Tool %r failed for job %s: %s", tool_name, job_id, e)
             result = {"error": str(e)}
 
-        # Emit tool_result event
         await self.job_store.emit_event(
             job_id,
             JobEvent(
@@ -104,15 +106,10 @@ class ToolHandlers:
         self, args: dict[str, Any], job_id: str
     ) -> dict[str, Any]:
         parsed = CreateFileArgs(**args)
-        result = await self.file_applier.create(
-            path=parsed.path, content=parsed.content
-        )
+        result = await self.file_applier.create(path=parsed.path, content=parsed.content)
         await self.job_store.emit_event(
             job_id,
-            JobEvent(
-                event=JobEventType.FILE_CHANGE,
-                data=result.model_dump(),
-            ),
+            JobEvent(event=JobEventType.FILE_CHANGE, data=result.model_dump()),
         )
         return result.model_dump()
 
@@ -126,7 +123,7 @@ class ToolHandlers:
         if file_content is None:
             raise ValueError(
                 f"File content for '{parsed.path}' was not provided at job creation. "
-                f"The client must include it in the 'files' map of the job request."
+                f"The client must include it in the 'files' map of the POST /jobs request."
             )
 
         result = await self.file_applier.edit(
@@ -137,10 +134,7 @@ class ToolHandlers:
         )
         await self.job_store.emit_event(
             job_id,
-            JobEvent(
-                event=JobEventType.FILE_CHANGE,
-                data=result.model_dump(),
-            ),
+            JobEvent(event=JobEventType.FILE_CHANGE, data=result.model_dump()),
         )
         return result.model_dump()
 
@@ -151,10 +145,7 @@ class ToolHandlers:
         result = await self.file_applier.delete(path=parsed.path)
         await self.job_store.emit_event(
             job_id,
-            JobEvent(
-                event=JobEventType.FILE_CHANGE,
-                data=result.model_dump(),
-            ),
+            JobEvent(event=JobEventType.FILE_CHANGE, data=result.model_dump()),
         )
         return result.model_dump()
 

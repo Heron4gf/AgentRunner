@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import subprocess
 from pathlib import Path
 
-from app.models.execution import SearchMatch, SearchFilesResult
+from app.models.execution import SearchFilesResult, SearchMatch
+
+logger = logging.getLogger(__name__)
 
 
 class SearchEngine:
@@ -22,6 +26,7 @@ class SearchEngine:
         if path:
             search_dir = search_dir / path
             if not search_dir.exists():
+                logger.warning("search_files: directory does not exist: %s", search_dir)
                 return SearchFilesResult(matches=[], total=0)
 
         cmd = [
@@ -33,21 +38,23 @@ class SearchEngine:
             "--max-count",
             str(max_results),
         ]
-
         if file_pattern:
             cmd.extend(["--glob", file_pattern])
-
         cmd.append(query)
         cmd.append(str(search_dir))
 
+        logger.info("search_files — query=%r dir=%s pattern=%s", query, search_dir, file_pattern)
+
         try:
-            result = subprocess.run(
+            result = await asyncio.to_thread(
+                subprocess.run,
                 cmd,
                 capture_output=True,
                 text=True,
                 timeout=30,
             )
-        except (subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            logger.warning("search_files failed: %s", e)
             return SearchFilesResult(matches=[], total=0)
 
         matches: list[SearchMatch] = []
@@ -62,7 +69,6 @@ class SearchEngine:
             if entry.get("type") == "match":
                 data = entry.get("data", {})
                 path_text = data.get("path", {}).get("text", "")
-                # Make path relative to workspace
                 try:
                     path_text = str(Path(path_text).relative_to(self.workspace_root))
                 except ValueError:
@@ -86,7 +92,6 @@ class SearchEngine:
                     )
                 )
 
-        # Deduplicate by (path, line) keeping first match
         seen: set[tuple[str, int]] = set()
         deduped: list[SearchMatch] = []
         for m in matches:
@@ -95,7 +100,5 @@ class SearchEngine:
                 seen.add(key)
                 deduped.append(m)
 
-        return SearchFilesResult(
-            matches=deduped[:max_results],
-            total=len(deduped),
-        )
+        logger.info("search_files — found %d unique matches", len(deduped))
+        return SearchFilesResult(matches=deduped[:max_results], total=len(deduped))

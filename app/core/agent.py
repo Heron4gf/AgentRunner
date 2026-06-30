@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ from app.core.job_store import JobStore
 from app.core.llm import LLMClient
 from app.models.job import JobEvent, JobEventType
 from app.tools.handlers import ToolHandlers
+
+logger = logging.getLogger(__name__)
 
 
 class AgentLoop:
@@ -42,13 +45,13 @@ class AgentLoop:
         return template.replace("{preferences}", prefs_text)
 
     async def run(self) -> None:
+        logger.info("[job:%s] Starting agent loop — query=%r", self.job_id, self.query[:120])
         await self.job_store.set_running(self.job_id)
 
         system_prompt = self._load_system_prompt()
         self.messages.append(SystemMessage(content=system_prompt))
         self.messages.append(HumanMessage(content=self.query))
 
-        # Emit message event for the initial query
         await self.job_store.emit_event(
             self.job_id,
             JobEvent(
@@ -58,11 +61,14 @@ class AgentLoop:
         )
 
         try:
-            for _ in range(self.MAX_ITERATIONS):
+            for iteration in range(self.MAX_ITERATIONS):
+                logger.info(
+                    "[job:%s] Iteration %d/%d — invoking LLM",
+                    self.job_id, iteration + 1, self.MAX_ITERATIONS,
+                )
                 ai_message = await self.llm_client.invoke(self.messages)
                 self.messages.append(ai_message)
 
-                # Emit assistant message
                 if ai_message.content:
                     await self.job_store.emit_event(
                         self.job_id,
@@ -73,9 +79,13 @@ class AgentLoop:
                     )
 
                 tool_calls = LLMClient.parse_tool_calls(ai_message)
+                logger.info(
+                    "[job:%s] LLM response — tool_calls=%s",
+                    self.job_id, [tc["name"] for tc in tool_calls] if tool_calls else "none",
+                )
 
                 if not tool_calls:
-                    # No tool calls and no finish_task: treat as completion
+                    logger.info("[job:%s] No tool calls — marking completed.", self.job_id)
                     await self.job_store.emit_event(
                         self.job_id,
                         JobEvent(
@@ -85,17 +95,16 @@ class AgentLoop:
                     )
                     return
 
-                # Execute each tool call
                 for tc in tool_calls:
                     tool_name = tc["name"]
                     tool_args = tc["args"]
                     tool_call_id = tc["id"]
 
+                    logger.info("[job:%s] Dispatching tool: %s", self.job_id, tool_name)
                     result = await self.tool_handlers.dispatch(
                         self.job_id, tool_name, tool_args
                     )
 
-                    # Add tool result to message history
                     self.messages.append(
                         ToolMessage(
                             content=json.dumps(result),
@@ -103,11 +112,14 @@ class AgentLoop:
                         )
                     )
 
-                    # Check for finish_task
                     if tool_name == "finish_task":
+                        logger.info("[job:%s] finish_task called — agent done.", self.job_id)
                         return
 
-            # Max iterations reached
+            logger.warning(
+                "[job:%s] Max iterations (%d) reached — terminating.",
+                self.job_id, self.MAX_ITERATIONS,
+            )
             await self.job_store.emit_event(
                 self.job_id,
                 JobEvent(
@@ -117,6 +129,7 @@ class AgentLoop:
             )
 
         except Exception as e:
+            logger.exception("[job:%s] Agent loop crashed: %s", self.job_id, e)
             await self.job_store.emit_event(
                 self.job_id,
                 JobEvent(

@@ -1,37 +1,36 @@
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage
-from langchain_openai import ChatOpenAI
+from langchain_openrouter import ChatOpenRouter
 
-from app.config import get_settings
 from app.tools.definitions import TOOL_DEFINITIONS
+
+logger = logging.getLogger(__name__)
 
 
 class LLMClient:
     def __init__(
         self,
-        model: str = "anthropic/claude-sonnet-4.6",
+        model: str,
         temperature: float = 0.0,
         bind_tools: bool = True,
     ) -> None:
-        settings = get_settings()
-        self.llm = ChatOpenAI(
-            api_key=settings.openrouter_api_key,
-            base_url=settings.openrouter_base_url,
-            model=model,
-            temperature=temperature,
-        )
+        # ChatOpenRouter reads OPENROUTER_API_KEY from the environment automatically.
+        # No api_key or base_url argument needed.
+        self.llm = ChatOpenRouter(model=model, temperature=temperature)
         self.llm_with_tools = (
             self.llm.bind_tools(TOOL_DEFINITIONS) if bind_tools else self.llm
         )
+        logger.info("LLMClient initialised — model=%s bind_tools=%s", model, bind_tools)
 
     async def invoke(self, messages: list[BaseMessage]) -> AIMessage:
         return await self.llm_with_tools.ainvoke(messages)
 
     async def invoke_plain(self, messages: list[BaseMessage]) -> AIMessage:
-        """For the extractor — no tool binding."""
+        """Plain invocation without tool binding — used by the extractor."""
         return await self.llm.ainvoke(messages)
 
     @staticmethod
@@ -39,10 +38,6 @@ class LLMClient:
         if not message.tool_calls:
             return []
         return [
-            {
-                "id": tc["id"],
-                "name": tc["name"],
-                "args": tc["args"],
-            }
+            {"id": tc["id"], "name": tc["name"], "args": tc["args"]}
             for tc in message.tool_calls
         ]
