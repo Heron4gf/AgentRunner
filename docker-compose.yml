@@ -1,0 +1,27 @@
+services:
+  agent:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - workspace-data:/workspace
+      - ./app:/app/app
+    environment:
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - TAVILY_API_KEY=${TAVILY_API_KEY}
+      - CONTEXTER_URL=${CONTEXTER_URL:-http://contexter:8001}
+      - WORKSPACE_ROOT=/workspace
+      - LLM_MODEL=${LLM_MODEL:-anthropic/claude-sonnet-4.6}
+      - APPLIER_MODEL=${APPLIER_MODEL:-morph-v3-fast}
+    depends_on:
+      - contexter
+    restart: unless-stopped
+
+  contexter:
+    image: ghcr.io/contexter/contexter:latest
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+volumes:
+  workspace-data:

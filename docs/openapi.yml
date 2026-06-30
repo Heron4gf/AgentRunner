@@ -1,0 +1,237 @@
+openapi: 3.1.0
+info:
+  title: Coding Agent Service
+  description: Cloud-native coding agent with SSE streaming, OpenRouter LLM, and Morph applier.
+  version: 0.1.0
+servers:
+  - url: http://localhost:8000
+    description: Local development
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [health]
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+
+  /jobs:
+    post:
+      summary: Create a new job
+      operationId: createJob
+      tags: [jobs]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJobRequest"
+      responses:
+        "201":
+          description: Job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobResponse"
+    get:
+      summary: List jobs
+      operationId: listJobs
+      tags: [jobs]
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: List of jobs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JobStatusResponse"
+
+  /jobs/{job_id}:
+    get:
+      summary: Get job status
+      operationId: getJob
+      tags: [jobs]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "404":
+          description: Job not found
+
+  /jobs/{job_id}/events:
+    get:
+      summary: Stream job events (SSE)
+      operationId: streamEvents
+      tags: [jobs]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: SSE event stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "404":
+          description: Job not found
+
+  /jobs/{job_id}/cancel:
+    post:
+      summary: Cancel a job
+      operationId: cancelJob
+      tags: [jobs]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Job cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "404":
+          description: Job not found
+
+  /jobs/{job_id}/input:
+    post:
+      summary: Send user input to a waiting job
+      operationId: sendInput
+      tags: [jobs]
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                message:
+                  type: string
+              required: [message]
+      responses:
+        "200":
+          description: Input accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobStatusResponse"
+        "404":
+          description: Job not found
+        "409":
+          description: Job is not waiting for input
+
+components:
+  schemas:
+    CreateJobRequest:
+      type: object
+      properties:
+        query:
+          type: string
+        project_id:
+          type: string
+          format: uuid
+          nullable: true
+        workspace_id:
+          type: string
+          format: uuid
+          nullable: true
+      required: [query]
+
+    JobResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, waiting_input, completed, failed, cancelled]
+
+    JobStatusResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+          format: uuid
+        task_id:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [queued, running, waiting_input, completed, failed, cancelled]
+        query:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+
+    JobEvent:
+      type: object
+      properties:
+        event:
+          type: string
+          enum: [message, tool_call, tool_result, file_change, error, completed, cancelled]
+        timestamp:
+          type: string
+          format: date-time
+        call_id:
+          type: string
+          nullable: true
+        data:
+          type: object
+          additionalProperties: true
